@@ -487,7 +487,7 @@ final class ScopeInfo {
     writer.append("}");
   }
 
-  void buildProvides(Append writer, Set<String> provides, Set<String> requires) {
+  void buildProvides(Append writer, Set<String> provides, Set<String> requires, Set<String> aggregates) {
     if (!provides.isEmpty()) {
       buildProvidesMethod(writer, "providesBeans", provides);
     }
@@ -496,6 +496,9 @@ final class ScopeInfo {
     }
     if (!requiresPackages.isEmpty()) {
       buildProvidesMethod(writer, "requiresPackagesFromType", requiresPackages);
+    }
+    if (!aggregates.isEmpty()) {
+      buildProvidesMethod(writer, "aggregateBeans", aggregates);
     }
   }
 

@@ -228,16 +228,18 @@ final class SimpleModuleWriter {
     Set<String> scopeRequires = new TreeSet<>(scopeInfo.requires());
     scopeRequires.addAll(ordering.autoRequires());
 
+    final Set<String> scopeAggregates = new TreeSet<>();
     for (MetaData metaData : ordering.ordered()) {
       if (!metaData.isExternal()) {
         final var forExternal = metaData.provides();
         if (forExternal != null && !forExternal.isEmpty()) {
           scopeProvides.addAll(forExternal);
         }
+        scopeAggregates.addAll(metaData.aggregateTypes());
       }
     }
 
-    scopeInfo.buildProvides(writer, scopeProvides, scopeRequires);
+    scopeInfo.buildProvides(writer, scopeProvides, scopeRequires, scopeAggregates);
 
     var requires = new ArrayList<>(scopeRequires);
     var provides = new ArrayList<>(scopeProvides);

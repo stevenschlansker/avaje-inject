@@ -47,6 +47,7 @@ final class MetaData implements Comparable<MetaData> {
   private final Set<String> externalDependencies = new HashSet<>();
   private boolean importedComponent;
   private String sourceModule;
+  private List<String> aggregateTypes = List.of();
 
   MetaData(DependencyMetaPrism meta) {
     this.type = meta.type();
@@ -168,6 +169,11 @@ final class MetaData implements Comparable<MetaData> {
     this.dependsOn = beanReader.dependsOn();
     this.generateProxy = beanReader.isGenerateProxy();
     this.importedComponent = beanReader.importedComponent();
+    this.aggregateTypes = beanReader.aggregateTypes();
+  }
+
+  List<String> aggregateTypes() {
+    return aggregateTypes;
   }
 
   String name() {

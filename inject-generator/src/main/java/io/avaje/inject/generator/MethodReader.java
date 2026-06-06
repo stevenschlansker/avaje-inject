@@ -785,6 +785,17 @@ final class MethodReader {
       return new Dependency(isWildcard() ? genericType.mainType() : paramType, named, utilType.isCollection());
     }
 
+    /** True when this parameter aggregates beans via collection injection (List or Set). */
+    boolean isAggregate() {
+      return utilType.isCollection();
+    }
+
+    /** The element type aggregated by a collection parameter (e.g. {@code List<T>} -> {@code T}). */
+    String aggregateType() {
+      // Match the form used for dependsOn / providesBeans so module ordering can resolve it.
+      return dependsOn().name();
+    }
+
     void addImports(ImportTypeMap importTypes) {
       if (isObserveEvent) {
         importTypes.add("java.util.function.Consumer");

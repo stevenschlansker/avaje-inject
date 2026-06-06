@@ -42,6 +42,21 @@ public interface AvajeModule extends InjectExtension {
     return EMPTY_STRINGS;
   }
 
+  /**
+   * Return the element type names this module aggregates via collection injection
+   * ({@code List<T>} or {@code Set<T>}) at construction time.
+   *
+   * <p>Unlike {@link #requiresBeans()} these are soft ordering hints, not hard requirements: a
+   * module that aggregates {@code T} is built after modules that provide {@code T} so the aggregated
+   * collection sees every contribution, but the ordering must not deadlock when no such ordering
+   * exists (for example when the aggregating module also provides a {@code T} of its own, or when
+   * there is a dependency cycle). Modules generated before this method existed return an empty
+   * array, preserving the previous behaviour.
+   */
+  default String[] aggregateBeans() {
+    return EMPTY_STRINGS;
+  }
+
   /** Whether The Module is an {@link InjectModule#interweave} module */
   default boolean interweaved() {
     return false;

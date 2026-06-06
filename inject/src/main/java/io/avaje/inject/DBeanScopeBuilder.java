@@ -346,7 +346,7 @@ final class DBeanScopeBuilder implements BeanScopeBuilder.ForTesting {
 
       addFactoryProvides(factoryState, module.providesBeans());
 
-      if (factoryState.isRequiresEmpty()) {
+      if (factoryState.isRequiresEmpty() && !factoryState.aggregates()) {
         if (factoryState.explicitlyProvides()) {
           // push immediately when explicitly 'provides' with no 'requires'
           push(factoryState);
@@ -355,7 +355,7 @@ final class DBeanScopeBuilder implements BeanScopeBuilder.ForTesting {
           queueNoDependencies.add(factoryState);
         }
       } else {
-        // queue it to process by dependency ordering
+        // queue it to process by dependency ordering (requires and/or aggregation hints)
         queue.add(factoryState);
       }
     }
@@ -412,19 +412,47 @@ final class DBeanScopeBuilder implements BeanScopeBuilder.ForTesting {
           push(factoryState);
         }
       } else if (!queue.isEmpty()) {
-        final var sb = new StringBuilder();
-        for (final FactoryState factory : queue) {
-          sb.append("Module [").append(factory).append("] has unsatisfied");
-          unsatisfiedRequires(sb, factory.requires(), "requires");
-          unsatisfiedRequires(sb, factory.requiresPackages(), "requiresPackages");
+        // A module held only by an aggregation hint (its hard requires are satisfied) cannot be
+        // ordered after every contributor: typically a cycle or a self-contributing aggregator.
+        // Aggregation is a best-effort hint, so push these rather than failing the build.
+        pushAggregationBlocked();
+        if (!queue.isEmpty()) {
+          throw new IllegalStateException(unsatisfiedMessage());
         }
-        sb.append(" - none of the loaded modules ").append(moduleNames).append(" have this in their @InjectModule( provides = ... ). ");
-        if (parent != null) {
-          sb.append("The parent BeanScope ").append(parent).append(" also does not provide this dependency. ");
-        }
-        sb.append("Either @InjectModule requires/provides are not aligned? or add external dependencies via BeanScopeBuilder.bean()?");
-        throw new IllegalStateException(sb.toString());
       }
+    }
+
+    /** Push modules whose hard requires are satisfied but that remain held by aggregation hints. */
+    private void pushAggregationBlocked() {
+      int count;
+      do {
+        count = 0;
+        final var it = queue.iterator();
+        while (it.hasNext()) {
+          final FactoryState factory = it.next();
+          if (satisfiedDependencies(factory.requires(), false)
+              && satisfiedDependencies(factory.requiresPackages(), false)) {
+            it.remove();
+            push(factory);
+            count++;
+          }
+        }
+      } while (count > 0);
+    }
+
+    private String unsatisfiedMessage() {
+      final var sb = new StringBuilder();
+      for (final FactoryState factory : queue) {
+        sb.append("Module [").append(factory).append("] has unsatisfied");
+        unsatisfiedRequires(sb, factory.requires(), "requires");
+        unsatisfiedRequires(sb, factory.requiresPackages(), "requiresPackages");
+      }
+      sb.append(" - none of the loaded modules ").append(moduleNames).append(" have this in their @InjectModule( provides = ... ). ");
+      if (parent != null) {
+        sb.append("The parent BeanScope ").append(parent).append(" also does not provide this dependency. ");
+      }
+      sb.append("Either @InjectModule requires/provides are not aligned? or add external dependencies via BeanScopeBuilder.bean()?");
+      return sb.toString();
     }
 
     private void unsatisfiedRequires(StringBuilder sb, String[] requiredType, String requires) {
@@ -480,7 +508,26 @@ final class DBeanScopeBuilder implements BeanScopeBuilder.ForTesting {
     /** Return true if the (module) requires dependencies are satisfied for this factory. */
     private boolean satisfiedDependencies(FactoryState factory, boolean relaxed) {
       return satisfiedDependencies(factory.requires(), relaxed)
-          && satisfiedDependencies(factory.requiresPackages(), relaxed);
+          && satisfiedDependencies(factory.requiresPackages(), relaxed)
+          && satisfiedAggregates(factory);
+    }
+
+    /**
+     * Return true when every other module that provides an aggregated element type has already been
+     * pushed, so this module's collection injection will observe all contributions. Providers that
+     * are this same module are ignored to avoid a self-imposed block. A module that can never satisfy
+     * this hint (a cycle, or it is the sole provider) is still pushed: by {@link
+     * #pushAggregationBlocked()} when no supplied beans are in play, otherwise by the relaxed pass in
+     * {@link #processQueue()}. An aggregation hint alone never deadlocks the build.
+     */
+    private boolean satisfiedAggregates(FactoryState factory) {
+      for (final var aggregated : factory.aggregateBeans()) {
+        final var factoryList = providesMap.get(aggregated);
+        if (factoryList != null && !factoryList.allPushedExcept(factory)) {
+          return false;
+        }
+      }
+      return true;
     }
 
     private boolean satisfiedDependencies(String[] requires, boolean relaxed) {
@@ -529,6 +576,14 @@ final class DBeanScopeBuilder implements BeanScopeBuilder.ForTesting {
       return factory.requiresPackagesFromType();
     }
 
+    String[] aggregateBeans() {
+      return factory.aggregateBeans();
+    }
+
+    boolean aggregates() {
+      return !isEmpty(factory.aggregateBeans());
+    }
+
     @Override
     public String toString() {
       return factory.getClass().getTypeName();
@@ -574,6 +629,16 @@ final class DBeanScopeBuilder implements BeanScopeBuilder.ForTesting {
         }
       }
       return false;
+    }
+
+    /** Return true if every factory here except the given one has been pushed. */
+    boolean allPushedExcept(FactoryState exclude) {
+      for (final FactoryState factory : factories) {
+        if (factory != exclude && !factory.isPushed()) {
+          return false;
+        }
+      }
+      return true;
     }
   }
 }

@@ -222,6 +222,24 @@ final class BeanReader {
     return this;
   }
 
+  /**
+   * Element types this bean aggregates via collection constructor parameters ({@code List<T>},
+   * {@code Set<T>}). These are surfaced as the module's soft ordering hints so the module is built
+   * after modules that provide the element type, where such an ordering exists.
+   */
+  List<String> aggregateTypes() {
+    if (constructor == null) {
+      return Collections.emptyList();
+    }
+    List<String> list = new ArrayList<>();
+    for (MethodReader.MethodParam param : constructor.params()) {
+      if (param.isAggregate()) {
+        list.add(param.aggregateType());
+      }
+    }
+    return list;
+  }
+
   List<Dependency> dependsOn() {
     List<Dependency> list = new ArrayList<>();
     if (constructor != null) {
