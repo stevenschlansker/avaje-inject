@@ -176,6 +176,10 @@ final class MetaData implements Comparable<MetaData> {
     return aggregateTypes;
   }
 
+  void setAggregateTypes(List<String> aggregateTypes) {
+    this.aggregateTypes = aggregateTypes;
+  }
+
   String name() {
     return name;
   }

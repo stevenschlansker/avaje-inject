@@ -240,11 +240,18 @@ final class MethodReader {
       .map(t -> CONDITIONAL_DEPENDENCY + t)
       .forEach(dependsOn::add);
 
+    final List<String> aggregateTypes = new ArrayList<>();
     for (final MethodParam param : params) {
       var dep = Util.addQualifierSuffix(param.named, Util.trimWildcard(param.paramType));
-      dependsOn.add(param.utilType.isCollection() ? Constants.SOFT_DEPENDENCY + dep : dep);
+      if (param.isAggregate()) {
+        dependsOn.add(Constants.SOFT_DEPENDENCY + dep);
+        aggregateTypes.add(param.aggregateType());
+      } else {
+        dependsOn.add(dep);
+      }
     }
     metaData.setDependsOn(dependsOn);
+    metaData.setAggregateTypes(aggregateTypes);
     metaData.setProvides(
       typeReader == null
         ? Collections.emptyList()
