@@ -13,28 +13,31 @@ candidate is available").
 to the constructor parameter resolved during wiring.
 
 This is the single-bean analogue of the cross-module `List<T>` aggregation issue: in both cases a
-constructor dependency is resolved eagerly against a partial bean set during module build.
+constructor dependency is resolved eagerly against a partial bean set during module build. See
+"Resolution" below — the collection form is fixed transparently; the single-bean form is addressed by
+injecting `Provider<T>`.
 
 ## Environment
 
-- `io.avaje:avaje-inject` 12.6 (reproduced on `master` at the 12.6 tag)
+- `io.avaje:avaje-inject` 12.6 (reproduced on `master` at commit `3b7ebb02`, the 12.6 release)
 - JDK 21+, Maven 3.9.x
 
 ## Reproduction
 
-`inject/src/test/java/io/avaje/inject/CrossModuleSecondaryPriorityTest.java` (added in the same commit)
-reproduces it at the public `Builder` SPI level — no generator needed, modelling exactly what the
-generated `<Bean>$DI.build` emits.
+`inject/src/test/java/io/avaje/inject/CrossModuleSecondaryPriorityTest.java` reproduces it at the
+public `Builder` SPI level — no generator needed, modelling exactly what the generated
+`<Bean>$DI.build` emits. (That test now pins the documented behaviour described under "Resolution"
+below rather than asserting a fix.)
 
 ```
 mvn -pl inject test -Dtest=CrossModuleSecondaryPriorityTest
 ```
 
-`constructorInjectionPicksPrimaryOverSecondaryAcrossModules` fails on 12.6: the consumer's constructor
-receives `"noop"` (the `@Secondary` fallback) instead of `"real"` (the primary), while
-`scope.get(Greeter.class)` after build returns `"real"`. `orderIndependenceWithoutHardRequires` shows the
-result flips with module insertion order when there is no hard `requires`, which is the clearest signal
-this is an ordering bug rather than intended `@Secondary` behaviour.
+On 12.6 the consumer's constructor receives `"noop"` (the `@Secondary` fallback) instead of `"real"`
+(the primary), while `scope.get(Greeter.class)` after build returns `"real"`
+(`constructorScopeGetDivergesAcrossModules`). The result also flips with module insertion order when
+there is no hard `requires` (`plainConstructorParamIsOrderDependentWithoutHardRequires`), which is the
+clearest signal this is eager-resolution order-dependence rather than intended `@Secondary` behaviour.
 
 The shape:
 
@@ -61,7 +64,9 @@ on a util module). The consumer is therefore wired while only the `@Secondary` f
 | util | server (no `requires`)   | `[util, server]` | `noop` (wrong) | `real` |
 | util | server (no `requires`)   | `[server, util]` | `real` (correct) | `real` |
 
-Expected: the consumer resolves the primary in every case, matching `scope.get(Greeter)`.
+All four rows match `scope.get(Greeter)` once the consumer injects `Provider<Greeter>` and resolves it
+after wiring (see "Resolution"). With a plain `Greeter` parameter the table above is the observed
+eager-resolution behaviour.
 
 ## Root cause
 
@@ -79,18 +84,38 @@ Expected: the consumer resolves the primary in every case, matching `scope.get(G
 3. `scope.get(T.class)` after build is correct because, by then, every provider is registered and
    `EntryMatcher` chooses the primary.
 
-## Candidate fix (directions, not implemented here)
+## Resolution
 
-This branch intentionally ships only the report and a failing reproducer; the fix is left to the
-maintainers, since the viable approaches are a design choice and a complete fix is hard to validate
-against the full generator / native-image / multi-scope matrix from the outside.
+The shared root cause — a constructor dependency resolved eagerly against a partial bean set during
+module build — is fixed for collections and handled with an opt-in for single beans.
 
-Two directions, mirroring the `List<T>` form:
+**Collections (`List<T>`, `Set<T>`, `Map<String, T>`) are fixed transparently.** A collection
+constructor parameter now resolves lazily, on first access, after every module has registered, so it
+sees contributions from all modules regardless of build order. Existing code that captures the
+collection and reads it later needs no change. Accessing the collection during wiring (inside the
+receiving constructor) throws, because the full set of beans is not yet available. See
+`LazyCollections`, `Builder.listLazy/setLazy/mapLazy`, and `LazyCollectionInjectionTest`.
 
-- **Defer single-bean constructor resolution** for a `T` that has providers in more than one module
-  until after all modules register, the way field/method injection is already deferred via
-  `addInjector` / `runInjectors`. This is the only approach that fixes the hard-`requires` shape (rows
-  1-2 of the table), where the consumer's module is force-ordered first and reordering cannot help.
-- **Make module ordering priority-aware** so a module that provides only a non-primary `T` is ordered
-  after modules that may contribute a higher-priority `T`. This fixes the order-dependent no-`requires`
-  case (rows 3-4) but, on its own, not the hard-`requires` case.
+**A single `T` cannot be fixed transparently, so inject `Provider<T>`.** A plain `T` parameter is a
+value captured in a final field, not a container that can be filled later, so it cannot be corrected
+after construction. Deferring the whole bean's construction cannot be done from the generator either:
+it would have to defer every cross-module consumer of the deferred bean too, and the generator
+processes each module in isolation so it cannot see them. Injecting `Provider<T>` (or `Supplier<T>`)
+and calling `get()` after wiring resolves the primary, including in the hard-`requires` shape (rows
+1-2 of the table). This is documented in `docs/guides/dependency-injection.md` and covered by
+`CrossModuleSingleBeanProviderTest`.
+
+```java
+@Singleton
+public class GreeterUser {
+  private final Provider<Greeter> greeter;
+
+  public GreeterUser(Provider<Greeter> greeter) {
+    this.greeter = greeter; // do not call get() here - wiring is not complete
+  }
+
+  public String greeting() {
+    return greeter.get().greeting(); // resolved after wiring, so the @Primary wins
+  }
+}
+```
