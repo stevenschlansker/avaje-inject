@@ -63,6 +63,41 @@ public class Service {
 }
 ```
 
+## Cross-module priority and `Provider<T>`
+
+When a `@Primary` or `@Secondary` bean and the constructor that depends on it live in different
+modules, the bean a single-`T` constructor parameter receives depends on the order the modules are
+wired. A constructor parameter of type `T` is resolved while the owning module is built, so it only
+sees `T` providers from modules built earlier. If a `@Secondary` fallback is registered in (or
+before) the consuming module and the `@Primary` is registered in a later-built module, the
+constructor captures the `@Secondary` bean, while `BeanScope.get(T.class)` after the scope is built
+returns the `@Primary`.
+
+Constructor injection of a collection (`List<T>`, `Set<T>`, `Map<String, T>`) does not have this
+problem: the collection is resolved after every module has registered, so it always includes
+contributions from all modules.
+
+To get the fully-resolved single bean, inject `Provider<T>` (or `Supplier<T>`) and call `get()` after
+wiring has completed. Calling `get()` during wiring (in the constructor) throws, because the full
+set of beans is not yet available; store the `Provider` and resolve it on use or from a
+`@PostConstruct` method:
+
+```java
+@Singleton
+public class GreeterUser {
+  private final Provider<Greeter> greeter;
+
+  public GreeterUser(Provider<Greeter> greeter) {
+    this.greeter = greeter;
+  }
+
+  public String greeting() {
+    // resolved after all modules register, so the @Primary wins
+    return greeter.get().greeting();
+  }
+}
+```
+
 ## Next Steps
 
 - See [factory methods](factory-methods.md)

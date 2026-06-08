@@ -170,6 +170,21 @@ class DBuilder implements Builder {
     return (Map<String, T>) beanMap.map(type, parent);
   }
 
+  @Override
+  public final <T> List<T> listLazy(Type type, String name) {
+    return LazyCollections.list(() -> runningPostConstruct, () -> listOf(type, name));
+  }
+
+  @Override
+  public final <T> Set<T> setLazy(Type type, String name) {
+    return LazyCollections.set(() -> runningPostConstruct, () -> set(type, name));
+  }
+
+  @Override
+  public final <T> Map<String, T> mapLazy(Type type, String name) {
+    return LazyCollections.map(() -> runningPostConstruct, () -> mapOf(type));
+  }
+
   private <T> T getMaybe(Type type, String name) {
     final T bean = beanMap.get(type, name);
     if (bean != null) {

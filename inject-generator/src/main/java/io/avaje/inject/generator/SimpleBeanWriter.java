@@ -241,8 +241,9 @@ final class SimpleBeanWriter {
 
   private void writeCreateBean(MethodReader constructor) {
     writer.start("var bean = new %s(", shortName);
-    // add constructor dependencies
-    writeMethodParams("builder", constructor);
+    // add constructor dependencies - resolved lazily so a collection parameter sees
+    // contributions from all modules, not just those built before this one
+    writeMethodParams("builder", constructor, true);
   }
 
   private void writeExtraInjection() {
@@ -355,12 +356,22 @@ final class SimpleBeanWriter {
   }
 
   private void writeMethodParams(String builderRef, MethodReader methodReader) {
+    writeMethodParams(builderRef, methodReader, false);
+  }
+
+  /**
+   * Write the dependency arguments for a method/constructor call. {@code lazy} is set only for
+   * constructor injection, where a collection parameter must resolve after all modules register;
+   * setter-method injection already runs after registration (in the addInjector pass) so it stays
+   * eager.
+   */
+  private void writeMethodParams(String builderRef, MethodReader methodReader, boolean lazy) {
     List<MethodReader.MethodParam> methodParams = methodReader.params();
     for (int i = 0; i < methodParams.size(); i++) {
       if (i > 0) {
         writer.append(", ");
       }
-      methodParams.get(i).builderGetDependency(writer, builderRef);
+      methodParams.get(i).builderGetDependency(writer, builderRef, lazy);
     }
     writer.append(");").eol();
   }

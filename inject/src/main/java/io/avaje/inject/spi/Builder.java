@@ -291,6 +291,33 @@ public interface Builder {
   <T> Map<String, T> map(Type type);
 
   /**
+   * Return a lazily-resolved list of dependencies for constructor injection.
+   *
+   * <p>Unlike {@link #list(Type, String)}, the returned list is not resolved until first access,
+   * which lets a constructor parameter see contributions from <em>all</em> modules rather than only
+   * those registered before the owning module's {@code build()} ran. Accessing the list before
+   * wiring completes (for example inside the constructor that received it) throws
+   * {@link IllegalStateException}; capture it in a field and read it from a {@code @PostConstruct}
+   * method instead. The resolved list is unmodifiable.
+   */
+  <T> List<T> listLazy(Type type, String name);
+
+  /**
+   * Return a lazily-resolved set of dependencies for constructor injection.
+   *
+   * @see #listLazy(Type, String)
+   */
+  <T> Set<T> setLazy(Type type, String name);
+
+  /**
+   * Return a lazily-resolved map of dependencies (keyed by qualifier name) for constructor
+   * injection.
+   *
+   * @see #listLazy(Type, String)
+   */
+  <T> Map<String, T> mapLazy(Type type, String name);
+
+  /**
    * Return true if the builder contains the given type.
    */
   boolean contains(Type type);

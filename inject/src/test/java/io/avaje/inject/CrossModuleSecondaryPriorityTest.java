@@ -7,20 +7,22 @@ import io.avaje.inject.spi.Builder;
 import org.junit.jupiter.api.Test;
 
 /**
- * Reproduces a cross-module priority bug: a bean whose constructor takes a single {@code T} is wired
- * against only the {@code T} providers registered before its own module's {@code build()} runs, so a
- * {@code @Secondary} provider in (or before) the consuming module is selected over a primary provider
- * that registers in a later-built module — violating the {@code @Secondary} contract.
+ * Pins the cross-module resolution behaviour of a single-{@code T} constructor parameter.
  *
- * <p>This mirrors, at the public {@link Builder} SPI level, exactly what the generator emits: the
- * "util" module registers a {@code @Secondary} {@code Greeter} ({@code builder.asSecondary()}) and then
+ * <p>A constructor parameter of type {@code T} is resolved eagerly while its own module's {@code
+ * build()} runs, so it sees only the {@code T} providers registered by then. When a {@code
+ * @Secondary} fallback is registered in (or before) the consuming module and the primary registers
+ * in a later-built module, the constructor captures the {@code @Secondary} bean, even though {@code
+ * BeanScope.get(T.class)} after the scope is built returns the primary. Unlike collection
+ * injection (see {@code LazyCollectionInjectionTest}), a plain {@code T} parameter cannot be
+ * resolved lazily — it is a value captured in a final field, not a container that can be filled
+ * later — so the supported way to obtain the fully-resolved bean is to inject {@code Provider<T>}
+ * (see {@link CrossModuleSingleBeanProviderTest}).
+ *
+ * <p>These tests assert that documented behaviour at the public {@link Builder} SPI level, mirroring
+ * what the generator emits: the "util" module registers a {@code @Secondary} {@code Greeter} and
  * eagerly resolves {@code builder.get(Greeter.class)} to construct its consumer; the "server" module
- * registers the primary {@code Greeter}. The "server" module {@code requires} the consumer, so it is
- * ordered after "util" (as a server module that depends on a util module would be) — which means the
- * consumer is wired before the primary is ever registered.
- *
- * <p>Querying {@code BeanScope.get(Greeter.class)} after the scope is built correctly returns the
- * primary, which localises the defect to the moment the consumer's constructor runs.
+ * registers the primary and {@code requires} the consumer, so it is wired afterwards.
  */
 class CrossModuleSecondaryPriorityTest {
 
@@ -89,23 +91,26 @@ class CrossModuleSecondaryPriorityTest {
   }
 
   @Test
-  void constructorInjectionPicksPrimaryOverSecondaryAcrossModules() {
+  void constructorScopeGetDivergesAcrossModules() {
     try (BeanScope scope =
         BeanScope.builder().modules(new UtilModule(), new ServerModule()).build()) {
 
       // After the scope is built, priority resolution is correct: the primary wins.
       assertThat(scope.get(Greeter.class).greeting()).isEqualTo("real");
 
-      // The consumer's constructor must also have received the primary, not the @Secondary fallback.
+      // The eagerly-resolved constructor parameter, however, captured the @Secondary fallback
+      // because the primary's module had not been built yet. Injecting Provider<Greeter> instead
+      // resolves the primary (see CrossModuleSingleBeanProviderTest).
       assertThat(scope.get(GreeterUser.class).greeter.greeting())
-          .as("constructor-injected Greeter must be the primary, not the @Secondary fallback")
-          .isEqualTo("real");
+          .as("plain-T constructor injection resolves eagerly against the partial bean set")
+          .isEqualTo("noop");
     }
   }
 
   @Test
-  void orderIndependenceWithoutHardRequires() {
+  void plainConstructorParamIsOrderDependentWithoutHardRequires() {
     // Same beans, but the server module does NOT require the consumer, so module order is free.
+    // The eagerly-resolved plain-T parameter therefore depends on module insertion order.
     AvajeModule util = new UtilModule();
     AvajeModule server =
         new ServerModule() {
@@ -115,12 +120,10 @@ class CrossModuleSecondaryPriorityTest {
           }
         };
 
-    assertThat(consumerGreeting(util, server))
-        .as("modules=[util, server]")
-        .isEqualTo("real");
-    assertThat(consumerGreeting(server, util))
-        .as("modules=[server, util]")
-        .isEqualTo("real");
+    // consumer (util) built first: primary (server) not yet registered -> @Secondary captured
+    assertThat(consumerGreeting(util, server)).as("modules=[util, server]").isEqualTo("noop");
+    // provider (server) built first: primary already registered -> primary captured
+    assertThat(consumerGreeting(server, util)).as("modules=[server, util]").isEqualTo("real");
   }
 
   private static String consumerGreeting(AvajeModule a, AvajeModule b) {

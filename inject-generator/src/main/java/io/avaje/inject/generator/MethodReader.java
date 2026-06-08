@@ -276,7 +276,7 @@ final class MethodReader {
       if (i > 0) {
         writer.append(", ");
       }
-      params.get(i).builderGetDependency(writer, "builder");
+      params.get(i).builderGetDependency(writer, "builder", true);
     }
     writer.append(");").eol();
   }
@@ -732,13 +732,26 @@ final class MethodReader {
     }
 
     void builderGetDependency(Append writer, String builderName) {
+      builderGetDependency(writer, builderName, false);
+    }
+
+    /**
+     * Write the {@code Builder} accessor for this parameter.
+     *
+     * <p>When {@code lazy} is set this is a constructor (or factory-method) argument, so a
+     * collection parameter uses the lazy accessor and is resolved after all modules register rather
+     * than eagerly during the owning module's build. The lazy collection accessors take an explicit
+     * {@code (Type, name)} pair, so a {@code null} name is emitted when there is no qualifier.
+     */
+    void builderGetDependency(Append writer, String builderName, boolean lazy) {
       final boolean wildcard = isWildcard();
+      final boolean lazyCollection = lazy && utilType.hasLazyAccessor(isBeanMap);
       final var wildParam = wildcard ? String.format("<%s>", genericType.shortWithoutAnnotations()) : "";
       writer
         .append(builderName)
         .append(".")
         .append(wildParam)
-        .append(utilType.getMethod(nullable, isBeanMap));
+        .append(utilType.getMethod(nullable, isBeanMap, lazy));
       if (!genericType.isGeneric() || wildcard) {
         writer.append(Util.shortName(genericType.mainType())).append(".class");
       } else {
@@ -746,6 +759,9 @@ final class MethodReader {
       }
       if (named != null && !named.isEmpty()) {
         writer.append(",\"").append(named).append("\"");
+      } else if (lazyCollection) {
+        // lazy collection accessors require an explicit (Type, name) pair
+        writer.append(", null");
       } else if (!isGenericParam() && utilType.allowsNamedQualifier()) {
         // implied qualifier name, leading '!' means implied
         writer.append(",\"!");

@@ -79,14 +79,26 @@ final class UtilType {
   }
 
   String getMethod(boolean nullable, boolean beanMap) {
+    return getMethod(nullable, beanMap, false);
+  }
+
+  /**
+   * Return the {@code Builder} accessor for this dependency.
+   *
+   * <p>When {@code lazy} is set and this is a collection ({@code List}/{@code Set}/{@code Map}), the
+   * lazy variant is returned so a constructor parameter resolves against the fully-populated bean
+   * map rather than an eager snapshot taken while the owning module is still building. Only
+   * collection accessors have a lazy form; everything else ignores {@code lazy}.
+   */
+  String getMethod(boolean nullable, boolean beanMap, boolean lazy) {
     switch (type) {
       case SET:
-        return "set(";
+        return lazy ? "setLazy(" : "set(";
       case LIST:
-        return "list(";
+        return lazy ? "listLazy(" : "list(";
       case MAP:
         if (beanMap) {
-          return "map(";
+          return lazy ? "mapLazy(" : "map(";
         }
         break;
       case OPTIONAL:
@@ -97,6 +109,11 @@ final class UtilType {
         break;
     }
     return nullable ? "getNullable(" : "get(";
+  }
+
+  /** Return true if this dependency has a lazy accessor (collection types only). */
+  boolean hasLazyAccessor(boolean beanMap) {
+    return type == Type.LIST || type == Type.SET || (type == Type.MAP && beanMap);
   }
 
 }
