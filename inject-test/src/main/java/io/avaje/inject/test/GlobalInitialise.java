@@ -55,15 +55,9 @@ final class GlobalInitialise {
 
   private static GlobalTestBeans.Beans createScopes(boolean shutdownHook) {
     BeanScope testBaseScope = createTestBaseScope(shutdownHook);
-    BeanScope testAllScope = createTestAllScope(testBaseScope);
-    Plugin.Scope pluginAll = PluginMgr.scope(testAllScope);
-    return new GlobalTestBeans.Beans(pluginAll, testAllScope, testBaseScope);
-  }
-
-  private static BeanScope createTestAllScope(BeanScope testBaseScope) {
-      return BeanScope.builder()
-        .parent(testBaseScope, false)
-        .build();
+    // no shared application scope is built: every test class wires its own application
+    // over the TestScope beans, so at most one application instance is live at a time
+    return new GlobalTestBeans.Beans(null, null, testBaseScope);
   }
 
   @Nullable
