@@ -53,28 +53,34 @@ final class MetaInfo {
     // wiring profiles
     String[] profiles = injectTest.map(InjectTest::profiles).orElse(new String[0]);
 
-    if (profiles.length > 0
-        || injectTest.map(InjectTest::scopePerTest).orElse(false)
-        || reader.hasMocksOrSpies(testInstance)) {
-      // need to build a BeanScope for this using baseBeans() as the parent
-      final BeanScopeBuilder builder = BeanScope.builder();
-      if (parent != null) {
-        builder.parent(parent.baseBeans(), false);
-        if (profiles.length > 0) {
-          builder.profiles(profiles);
-        }
-      }
-      // register mocks and spies local to this test
-      reader.build(builder, testInstance);
-      // wire with local mocks, spies, and TestScope beans
-      var newBeanScope = builder.build();
-      var newPlugin = PluginMgr.scope(newBeanScope);
-      return new TestBeans(newBeanScope, newPlugin);
+    // test classes never share an application scope: a shared scope stays live beside
+    // any rebuilt scope, and closing the rebuilt scope tears down JVM-global state the
+    // shared instances still use. A test instance reuses its own class-level scope
+    // when it adds nothing of its own; everything else wires a fresh application over
+    // the TestScope beans.
+    boolean reuseClassScope = testInstance != null
+        && reader.hasClassInjection()
+        && profiles.length == 0
+        && !injectTest.map(InjectTest::scopePerTest).orElse(false)
+        && !reader.hasMocksOrSpies(testInstance);
 
-    } else {
-      // just use the existing beans and plugin from parent
+    if (reuseClassScope) {
       return new TestBeans(parent);
     }
+    // need to build a BeanScope for this using baseBeans() as the parent
+    final BeanScopeBuilder builder = BeanScope.builder();
+    if (parent != null) {
+      builder.parent(parent.baseBeans(), false);
+      if (profiles.length > 0) {
+        builder.profiles(profiles);
+      }
+    }
+    // register mocks and spies local to this test
+    reader.build(builder, testInstance);
+    // wire with local mocks, spies, and TestScope beans
+    var newBeanScope = builder.build();
+    var newPlugin = PluginMgr.scope(newBeanScope);
+    return new TestBeans(newBeanScope, newPlugin);
   }
 
 }
